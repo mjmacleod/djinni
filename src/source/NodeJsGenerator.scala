@@ -192,7 +192,9 @@ class NodeJsGenerator(spec: Spec, helperFiles: NodeJsHelperFilesDescriptor) exte
         w.wl("using namespace v8;")
         w.wl("using namespace node;")
         w.wl("using namespace std;")
-        w.wl(s"using namespace ${spec.cppNamespace};")
+        if (spec.cppNamespace.nonEmpty) {
+            w.wl(s"using namespace ${spec.cppNamespace};")
+        }
 
         if (i.ext.nodeJS && refs.hppFwds.nonEmpty) {
           w.wl
