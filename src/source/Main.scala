@@ -78,6 +78,12 @@ object Main {
     var objcFileIdentStyleOptional: Option[IdentConverter] = None
     var objcppNamespace: String = "djinni_generated"
     var objcBaseLibIncludePrefix: String = ""
+    var nodePackage = ""
+    var nodeIncludeCpp = ""
+    var nodeIdentStyle = IdentStyle.nodeDefault
+    var nodeOutFolder: Option[File] = None
+    var nodeTypePrefix: String = ""
+    var nodeFileIdentStyleOptional: Option[IdentConverter] = None
     var inFileListPath: Option[File] = None
     var outFileListPath: Option[File] = None
     var skipGeneration: Boolean = false
@@ -210,6 +216,16 @@ object Main {
       opt[Boolean]("skip-generation").valueName("<true/false>").foreach(x => skipGeneration = x)
         .text("Way of specifying if file generation should be skipped (default: false)")
 
+      // NodeJS opt
+      opt[File]("node-out").valueName("<out-folder>").foreach(x => nodeOutFolder = Some(x))
+        .text("The output folder for NodeJS files (Generator disabled if unspecified)")
+      opt[String]("node-package").valueName("<package-name>").foreach(nodePackage = _)
+        .text("The name of packaged node module")
+      opt[String]("node-include-cpp").valueName("<prefix>").foreach(nodeIncludeCpp = _)
+        .text("The relative path from node-out to cpp-out")
+      opt[String]("node-type-prefix").valueName("<pre>").foreach(nodeTypePrefix = _)
+        .text("The prefix for Node data types (usually two or three letters)")
+
       note("\nIdentifier styles (ex: \"FooBar\", \"fooBar\", \"foo_bar\", \"FOO_BAR\", \"m_fooBar\")\n")
       identStyle("ident-java-enum",      c => { javaIdentStyle = javaIdentStyle.copy(enum = c) })
       identStyle("ident-java-field",     c => { javaIdentStyle = javaIdentStyle.copy(field = c) })
@@ -231,7 +247,13 @@ object Main {
       identStyle("ident-objc-type-param", c => { objcIdentStyle = objcIdentStyle.copy(typeParam = c) })
       identStyle("ident-objc-local",      c => { objcIdentStyle = objcIdentStyle.copy(local = c) })
       identStyle("ident-objc-file",       c => { objcFileIdentStyleOptional = Some(c) })
-
+      identStyle("ident-node-enum",       c => { nodeIdentStyle = nodeIdentStyle.copy(enum = c) })
+      identStyle("ident-node-field",      c => { nodeIdentStyle = nodeIdentStyle.copy(field = c) })
+      identStyle("ident-node-method",     c => { nodeIdentStyle = nodeIdentStyle.copy(method = c) })
+      identStyle("ident-node-type",       c => { nodeIdentStyle = nodeIdentStyle.copy(ty = c) })
+      identStyle("ident-node-type-param", c => { nodeIdentStyle = nodeIdentStyle.copy(typeParam = c) })
+      identStyle("ident-node-local",      c => { nodeIdentStyle = nodeIdentStyle.copy(local = c) })
+      identStyle("ident-node-file",       c => { nodeFileIdentStyleOptional = Some(c) })
     }
 
     if (!argParser.parse(args)) {
@@ -245,10 +267,15 @@ object Main {
     val jniFileIdentStyle = jniFileIdentStyleOptional.getOrElse(cppFileIdentStyle)
     var objcFileIdentStyle = objcFileIdentStyleOptional.getOrElse(objcIdentStyle.ty)
     val objcppIncludeObjcPrefix = objcppIncludeObjcPrefixOptional.getOrElse(objcppIncludePrefix)
+    var nodeFileIdentStyle = nodeFileIdentStyleOptional.getOrElse(nodeIdentStyle.ty)
 
     // Add ObjC prefix to identstyle
     objcIdentStyle = objcIdentStyle.copy(ty = IdentStyle.prefix(objcTypePrefix,objcIdentStyle.ty))
     objcFileIdentStyle = IdentStyle.prefix(objcTypePrefix, objcFileIdentStyle)
+
+    // Add Node prefix to identstyle
+    nodeIdentStyle = nodeIdentStyle.copy(ty = IdentStyle.prefix(nodeTypePrefix,nodeIdentStyle.ty))
+    nodeFileIdentStyle = IdentStyle.prefix(nodeTypePrefix, nodeFileIdentStyle)
 
     if (cppTypeEnumIdentStyle != null) {
       cppIdentStyle = cppIdentStyle.copy(enumType = cppTypeEnumIdentStyle)
@@ -355,6 +382,11 @@ object Main {
       objcSwiftBridgingHeaderWriter,
       objcSwiftBridgingHeaderName,
       objcClosedEnums,
+      nodeOutFolder,
+      nodePackage,
+      nodeIncludeCpp,
+      nodeIdentStyle,
+      nodeFileIdentStyle,
       outFileListWriter,
       skipGeneration,
       yamlOutFolder,

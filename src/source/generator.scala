@@ -80,6 +80,11 @@ package object generatorTools {
                    objcSwiftBridgingHeaderWriter: Option[Writer],
                    objcSwiftBridgingHeaderName: Option[String],
                    objcClosedEnums: Boolean,
+                   nodeOutFolder: Option[File],
+                   nodePackage: String,
+                   nodeIncludeCpp: String,
+                   nodeIdentStyle: NodeIdentStyle,
+                   nodeFileIdentStyle: IdentConverter,
                    outFileListWriter: Option[Writer],
                    skipGeneration: Boolean,
                    yamlOutFolder: Option[File],
@@ -106,6 +111,11 @@ package object generatorTools {
                             method: IdentConverter, field: IdentConverter, local: IdentConverter,
                             enum: IdentConverter, const: IdentConverter)
 
+  case class NodeIdentStyle(ty: IdentConverter, enumType: IdentConverter, typeParam: IdentConverter,
+                            method: IdentConverter, field: IdentConverter, local: IdentConverter,
+                            enum: IdentConverter, const: IdentConverter)
+
+
   object IdentStyle {
     val camelUpper = (s: String) => s.split('_').map(firstUpper).mkString
     val camelLower = (s: String) => {
@@ -120,6 +130,7 @@ package object generatorTools {
     val javaDefault = JavaIdentStyle(camelUpper, camelUpper, camelLower, camelLower, camelLower, underCaps, underCaps)
     val cppDefault = CppIdentStyle(camelUpper, camelUpper, camelUpper, underLower, underLower, underLower, underCaps, underCaps)
     val objcDefault = ObjcIdentStyle(camelUpper, camelUpper, camelLower, camelLower, camelLower, camelUpper, camelUpper)
+    val nodeDefault = NodeIdentStyle(camelUpper, camelUpper, camelUpper, underLower, underLower, underLower, underCaps, underCaps)
 
     val styles = Map(
       "FooBar" -> camelUpper,
@@ -224,6 +235,17 @@ package object generatorTools {
         SwiftBridgingHeaderGenerator.writeBridgingVars(spec.objcSwiftBridgingHeaderName.get, spec.objcSwiftBridgingHeaderWriter.get)
         new SwiftBridgingHeaderGenerator(spec).generate(idl)
       }
+      if (spec.nodeOutFolder.isDefined) {
+        if (!spec.skipGeneration) {
+          createFolder("NodeJS", spec.nodeOutFolder.get)
+          createFolder("NodeJSCpp", spec.nodeOutFolder.get)
+        }
+        val helperFileDescriptor = new NodeJsHelperFilesDescriptor(spec)
+
+        new NodeJsHelperFilesGenerator(spec, helperFileDescriptor).generate(idl)
+        new NodeJsGenerator(spec, helperFileDescriptor).generate(idl)
+        new NodeJsCppGenerator(spec, helperFileDescriptor).generate(idl)
+      }
       if (spec.yamlOutFolder.isDefined) {
         if (!spec.skipGeneration) {
           createFolder("YAML", spec.yamlOutFolder.get)
@@ -286,6 +308,7 @@ abstract class Generator(spec: Spec)
   val idCpp = spec.cppIdentStyle
   val idJava = spec.javaIdentStyle
   val idObjc = spec.objcIdentStyle
+  val idNode = spec.nodeIdentStyle
 
   def wrapNamespace(w: IndentWriter, ns: String, f: IndentWriter => Unit) {
     ns match {
