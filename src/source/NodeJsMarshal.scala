@@ -128,7 +128,7 @@ class NodeJsMarshal(spec: Spec) extends CppMarshal(spec) {
       }
       List(ImportRef(importRef))
     case d: MDef =>
-      val nodeRecordImport = s"${spec.nodeIncludeCpp}/${d.name}"
+      val nodeRecordImport = if(spec.nodeIncludeCpp.nonEmpty) s"${spec.nodeIncludeCpp}/${d.name}" else s"${d.name}"
       d.body match {
         case i: Interface =>
           val base = if (d.name != exclude) {

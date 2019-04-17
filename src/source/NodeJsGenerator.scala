@@ -152,7 +152,7 @@ class NodeJsGenerator(spec: Spec, helperFiles: NodeJsHelperFilesDescriptor) exte
     val className = baseClassName
 
     //Create .hpp file
-    val cppInterfaceHpp = "\"" + spec.nodeIncludeCpp + "/" + ident.name + "." + spec.cppHeaderExt + "\""
+    val cppInterfaceHpp = if (spec.nodeIncludeCpp.nonEmpty) "\"" + spec.nodeIncludeCpp + "/" + ident.name + "." + spec.cppHeaderExt + "\"" else "<" + ident.name + "." + spec.cppHeaderExt + ">"
     val cpp_shared_ptr = "std::shared_ptr<" + spec.cppNamespace + "::" + cppClassName + ">"
 
     val define = ("DJINNI_GENERATED_" + spec.nodeFileIdentStyle(ident.name) + "_" + spec.cppHeaderExt).toUpperCase
