@@ -119,10 +119,7 @@ class NodeJsCppGenerator(spec: Spec, helperFiles: NodeJsHelperFilesDescriptor) e
           val methodName = m.ident.name
           w.w(s"NAN_METHOD($baseClassName::$methodName)").braced {
 
-            //Check if we have Callback or ListCallback as argument
             var args = ""
-            var resolver = ""
-            var hasCallback = false
             m.params.foreach(p => {
               val index = m.params.indexOf(p)
 
@@ -130,15 +127,9 @@ class NodeJsCppGenerator(spec: Spec, helperFiles: NodeJsHelperFilesDescriptor) e
               if (p != m.params.last) {
                 args = s"${args},"
               }
-
-              if (p.ty.expr.ident.name.contains("Callback") ||
-                p.ty.expr.ident.name.contains("ListCallback")) {
-                resolver = s"arg_${index}_resolver"
-                hasCallback = true
-              }
             })
 
-            val argsLength = if (hasCallback) m.params.length - 1 else m.params.length
+            val argsLength = m.params.length
             w.wl
             w.wl("//Check if method called with right number of arguments")
             w.wl(s"if(info.Length() != $argsLength)").braced {
@@ -181,12 +172,13 @@ class NodeJsCppGenerator(spec: Spec, helperFiles: NodeJsHelperFilesDescriptor) e
               w.wl("//Return result")
               w.wl(s"info.GetReturnValue().Set(arg_$countArgs);")
             } else {
-              w.wl(s"cpp_impl->$methodName($args);")
-
-              if (hasCallback) {
-                w.wl(s"info.GetReturnValue().Set($resolver->GetPromise());")
+              if (!m.static) {
+                  w.wl(s"cpp_impl->$methodName($args);")
               }
-
+              else
+              {
+                  w.wl(s" ${idCpp.ty(ident.name)}::$methodName($args);")
+              }
             }
           }
           //Get factory method if it exists (will be used for Nan::New method)

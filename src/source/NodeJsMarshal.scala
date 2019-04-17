@@ -324,24 +324,13 @@ class NodeJsMarshal(spec: Spec) extends CppMarshal(spec) {
             wr.wl(s"${idCpp.ty(d.name)} $converted${listOfRecordArgs.toList.mkString("(", ", ", ")")};")
             wr.wl
           case i: Interface =>
-            if(d.name.contains("Callback")) {
-              if(i.ext.nodeJS) {
-                //Set promise if it is a callback
-                wr.wl
-                wr.wl("//Create promise and set it into Callback")
-                wr.wl(s"auto ${converted}_resolver = v8::Promise::Resolver::New(Nan::GetCurrentContext()).ToLocalChecked();")
-                wr.wl(s"$nodeType *njs_ptr_$converted = new $nodeType(${converted}_resolver);")
-                wr.wl(s"std::shared_ptr<$nodeType> $converted(njs_ptr_$converted);")
-              }
-            } else {
-              wr.wl(s"Local<Object> njs_$converted = $converting->ToObject(Nan::GetCurrentContext()).ToLocalChecked();")
-              wr.wl(s"auto $converted = djinni::js::ObjectWrapper<$interfaceName>::Unwrap(njs_$converted);");
+            wr.wl(s"Local<Object> njs_$converted = $converting->ToObject(Nan::GetCurrentContext()).ToLocalChecked();")
+            wr.wl(s"auto $converted = djinni::js::ObjectWrapper<$interfaceName>::Unwrap(njs_$converted);");
 
-              if(i.ext.cpp){
-                wr.wl(s"if(!$converted)").braced{
-                  val error = s""""NodeJs Object to $nodeType failed""""
-                  wr.wl(s"return Nan::ThrowError($error);")
-                }
+            if(i.ext.cpp){
+              wr.wl(s"if(!$converted)").braced{
+                val error = s""""NodeJs Object to $nodeType failed""""
+                wr.wl(s"return Nan::ThrowError($error);")
               }
             }
             wr.wl

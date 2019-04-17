@@ -47,74 +47,45 @@ class NodeJsGenerator(spec: Spec, helperFiles: NodeJsHelperFilesDescriptor) exte
             w.wl
             w.wl(s"$ret $baseClassName::$methodName${params.mkString("(", ", ", ")")}$constFlag").braced {
               w.wl("Nan::HandleScope scope;")
-              /*
-                Special treatment for Callbacks
-                We consider "Callback" a keyword to be contained in all callback objects,
-                they will implement only a "onCallback" method meeting this signature (idl format) :
-                template <typename T, typename S>
-                onCallback(result: optional<T>, error: optional<S>);
-
-                WARNING: Be sure to respect arguments' number and order
-               */
-
-              val isCallback = methodName.contains("onCallback") &&
-                idNode.ty(ident.name).contains("Callback") &&
-                (m.params.length == 2)
 
               w.wl("//Wrap parameters")
               val countArgs = checkAndCastTypes(ident, i, m, w)
 
-              if (isCallback) {
-
-                val errorName = m.params(1).ident.name
-
-                w.wl("auto local_resolver = Nan::New<Promise::Resolver>(pers_resolver);")
-                w.wl(s"if($errorName)").braced {
-                  w.wl("auto rejected = local_resolver->Reject(Nan::GetCurrentContext(), arg_1);")
-                  w.wl("rejected.FromJust();")
-                }
-                w.wl(s"else").braced {
-                  w.wl("auto resolve = local_resolver->Resolve(Nan::GetCurrentContext(), arg_0);")
-                  w.wl("resolve.FromJust();")
-                }
-
-              } else {
-                //Windows complains about 0 sized arrays
-                val arraySize = if(countArgs == 0) 1 else countArgs
-                var args: String = s"Handle<Value> args[$arraySize"
-                if(countArgs > 0) {
-                  args = s"${args}] = {"
-                  for (i <- 0 to countArgs - 1) {
-                    args = s"${args}arg_$i"
-                    if (i < m.params.length - 1) {
-                      args = s"${args},"
-                    }
+              //Windows complains about 0 sized arrays
+              val arraySize = if(countArgs == 0) 1 else countArgs
+              var args: String = s"Handle<Value> args[$arraySize"
+              if(countArgs > 0) {
+                args = s"${args}] = {"
+                for (i <- 0 to countArgs - 1) {
+                  args = s"${args}arg_$i"
+                  if (i < m.params.length - 1) {
+                    args = s"${args},"
                   }
-                  w.wl(s"${args}};")
-                } else {
-                  w.wl(s"${args}];")
                 }
+                w.wl(s"${args}};")
+              } else {
+                w.wl(s"${args}];")
+              }
 
-                //Get local from persistent
-                w.wl("Local<Object> local_njs_impl = Nan::New<Object>(njs_impl);")
-                w.wl("if(!local_njs_impl->IsObject())").braced {
-                  val error = s""""$baseClassName::$methodName fail to retrieve node implementation""""
-                  w.wl(s"Nan::ThrowError($error);")
-                }
+              //Get local from persistent
+              w.wl("Local<Object> local_njs_impl = Nan::New<Object>(njs_impl);")
+              w.wl("if(!local_njs_impl->IsObject())").braced {
+                val error = s""""$baseClassName::$methodName fail to retrieve node implementation""""
+                w.wl(s"Nan::ThrowError($error);")
+              }
 
-                val quotedMethod = s""""$methodName""""
-                w.wl(s"auto calling_funtion = Nan::Get(local_njs_impl,Nan::New<String>($quotedMethod).ToLocalChecked()).ToLocalChecked();")
-                w.wl(s"auto result_$methodName = Nan::CallAsFunction(calling_funtion->ToObject(),local_njs_impl,$countArgs,args);")
-                w.wl(s"if(result_$methodName.IsEmpty())").braced {
-                  val error = s""""$baseClassName::$methodName call failed""""
-                  w.wl(s"Nan::ThrowError($error);")
-                }
+              val quotedMethod = s""""$methodName""""
+              w.wl(s"auto calling_funtion = Nan::Get(local_njs_impl,Nan::New<String>($quotedMethod).ToLocalChecked()).ToLocalChecked();")
+              w.wl(s"auto result_$methodName = Nan::CallAsFunction(calling_funtion->ToObject(),local_njs_impl,$countArgs,args);")
+              w.wl(s"if(result_$methodName.IsEmpty())").braced {
+                val error = s""""$baseClassName::$methodName call failed""""
+                w.wl(s"Nan::ThrowError($error);")
+              }
 
-                if (m.ret.isDefined && ret != "void") {
-                  w.wl(s"auto checkedResult_$methodName = result_$methodName.ToLocalChecked();")
-                  marshal.toCppArgument(m.ret.get.resolved, s"fResult_$methodName", s"checkedResult_$methodName", w)
-                  w.wl(s"return fResult_$methodName;")
-                }
+              if (m.ret.isDefined && ret != "void") {
+                w.wl(s"auto checkedResult_$methodName = result_$methodName.ToLocalChecked();")
+                marshal.toCppArgument(m.ret.get.resolved, s"fResult_$methodName", s"checkedResult_$methodName", w)
+                w.wl(s"return fResult_$methodName;")
               }
             }
           }
@@ -208,17 +179,6 @@ class NodeJsGenerator(spec: Spec, helperFiles: NodeJsHelperFilesDescriptor) exte
         w.wl
         w.w(classInheritance).bracedSemi {
 
-          //Callbacks always treated differently
-          var isCallback = false
-          if(ident.name.contains("Callback")) {
-            for (m <- i.methods) {
-              val methodName = m.ident.name
-              if(methodName.contains("onCallback") && (m.params.length == 2)) {
-                isCallback = true
-              }
-            }
-          }
-
           w.wlOutdent("public:")
           w.wl
           w.wl(s"static void Initialize(Local<Object> target);")
@@ -236,19 +196,11 @@ class NodeJsGenerator(spec: Spec, helperFiles: NodeJsHelperFilesDescriptor) exte
 
             // Destructor
             w.wl(s"~$className()").bracedSemi {
-              if (isCallback) {
-                w.wl("pers_resolver.Reset();")
-              } else {
                 w.wl("njs_impl.Reset();")
-              }
             }
 
             //Constructor
-            if (isCallback){
-              w.wl(s"$className(Local<Promise::Resolver> resolver){pers_resolver.Reset(resolver);};")
-            } else {
-              w.wl(s"$className(Local<Object> njs_implementation){njs_impl.Reset(njs_implementation);};")
-            }
+            w.wl(s"$className(Local<Object> njs_implementation){njs_impl.Reset(njs_implementation);};")
 
             //For node implementation, use C++ types
             for (m <- i.methods) {
@@ -280,13 +232,7 @@ class NodeJsGenerator(spec: Spec, helperFiles: NodeJsHelperFilesDescriptor) exte
             //Implementation in C++
             w.wl(s"static NAN_METHOD(isNull);")
           } else {
-            //Persistent promise
-            if (isCallback) {
-              w.wl("Nan::Persistent<Promise::Resolver> pers_resolver;")
-            } else {
-              w.wl("Nan::Persistent<Object> njs_impl;")
-            }
-
+            w.wl("Nan::Persistent<Object> njs_impl;")
           }
         }
         w.wl(s"#endif //$define")
@@ -339,20 +285,11 @@ class NodeJsGenerator(spec: Spec, helperFiles: NodeJsHelperFilesDescriptor) exte
       }
 
       if (i.ext.nodeJS) {
-        //If callback instanciate a Resolver
-        //auto arg_1_resolver = v8::Promise::Resolver::New(Nan::GetCurrentContext()).ToLocalChecked();
-        wr.wl
-        if (ident.name.contains("Callback")){
-          wr.wl("auto resolver = v8::Promise::Resolver::New(Nan::GetCurrentContext()).ToLocalChecked();")
-          wr.wl(s"auto node_instance = std::make_shared<$baseClassName>(resolver);")
-        } else {
-          wr.wl("if(!info[0]->IsObject())").braced {
+        wr.wl("if(!info[0]->IsObject())").braced {
             val error = s""""$baseClassName::New requires an implementation from node""""
             wr.wl(s"return Nan::ThrowError($error);")
-
-          }
-          wr.wl(s"auto node_instance = std::make_shared<$baseClassName>(info[0]->ToObject());")
         }
+        wr.wl(s"auto node_instance = std::make_shared<$baseClassName>(info[0]->ToObject());")
         wr.wl(s"djinni::js::ObjectWrapper<$baseClassName>::Wrap(node_instance, info.This());")
       }
       wr.wl("info.GetReturnValue().Set(info.This());")
