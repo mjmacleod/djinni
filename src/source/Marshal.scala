@@ -49,4 +49,17 @@ abstract class Marshal(spec: Spec) {
     }
 
   protected def withCppNs(t: String) = withNs(Some(spec.cppNamespace), t)
+
+  def isNullOrVoid(ty: Option[TypeRef]): Boolean = {
+    ty.fold(true)(x => isNullOrVoid(x.resolved))
+  }
+  def isNullOrVoid(tm: MExpr): Boolean = {
+    tm.base match {
+      case p: MPrimitive => p.idlName match {
+        case "void" => true
+        case _ => false
+      }
+      case _ => false
+    }
+  }
 }

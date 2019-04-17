@@ -40,6 +40,14 @@ class CppMarshal(spec: Spec) extends Marshal(spec) {
     ret.fold("void")(toCppType(_, Some(spec.cppNamespace)))
   }
 
+def isMaybeAsync(ret: Option[TypeRef]): Boolean = {
+   ret.fold(false)(toMaybeAsync(_))
+}
+private def toMaybeAsync(ty: TypeRef): Boolean = ty.resolved.base match {
+  case p: MPrimitive => p.maybeAsync == true
+  case _ => false
+}
+
   def fieldType(tm: MExpr, scopeSymbols: Seq[String]): String = typename(tm, scopeSymbols)
   def fieldType(ty: TypeRef, scopeSymbols: Seq[String]): String = fieldType(ty.resolved, scopeSymbols)
   override def fieldType(tm: MExpr): String = typename(tm)

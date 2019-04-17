@@ -285,7 +285,13 @@ class JNIGenerator(spec: Spec) extends Generator(spec) {
             w.wl(s"auto jniEnv = ::djinni::jniGetThreadEnv();")
             w.wl(s"::djinni::JniLocalScope jscope(jniEnv, 10);")
             w.wl(s"const auto& data = ::djinni::JniClass<${withNs(Some(spec.jniNamespace), jniSelf)}>::get();")
-            val call = m.ret.fold("jniEnv->CallVoidMethod(")(r => "auto jret = " + toJniCall(r, (jt: String) => s"jniEnv->Call${jt}Method("))
+            val call = if(cppMarshal.isNullOrVoid(m.ret)) {
+              "jniEnv->CallVoidMethod("
+            }
+            else
+            {
+              m.ret.fold("")(r => "auto jret = " + toJniCall(r, (jt: String) => s"jniEnv->Call${jt}Method("))
+            }
             w.w(call)
             val javaMethodName = idJava.method(m.ident)
             w.w(s"Handle::get().get(), data.method_$javaMethodName")
@@ -300,20 +306,22 @@ class JNIGenerator(spec: Spec) extends Generator(spec) {
               w.w(")")
             w.wl(";")
             w.wl(s"::djinni::jniExceptionCheck(jniEnv);")
-            m.ret.fold()(ty => {
-              (spec.cppNnCheckExpression, isInterface(ty.resolved)) match {
-                case (Some(check), true) => {
-                  // We have a non-optional interface, assert that we're getting a non-null value
-                  val javaParams = m.params.map(p => javaMarshal.fqParamType(p.ty) + " " + idJava.local(p.ident))
-                  val javaParamsString: String = javaParams.mkString("(", ",", ")")
-                  val functionString: String = s"${javaMarshal.fqTypename(ident, i)}#$javaMethodName$javaParamsString"
-                  w.wl(s"""DJINNI_ASSERT_MSG(jret, jniEnv, "Got unexpected null return value from function $functionString");""")
-                  w.wl(s"return ${jniMarshal.toCpp(ty, "jret")};")
+            if(!cppMarshal.isNullOrVoid(m.ret)) {
+              m.ret.fold()(ty => {
+                (spec.cppNnCheckExpression, isInterface(ty.resolved)) match {
+                  case (Some(check), true) => {
+                    // We have a non-optional interface, assert that we're getting a non-null value
+                    val javaParams = m.params.map(p => javaMarshal.fqParamType(p.ty) + " " + idJava.local(p.ident))
+                    val javaParamsString: String = javaParams.mkString("(", ",", ")")
+                    val functionString: String = s"${javaMarshal.fqTypename(ident, i)}#$javaMethodName$javaParamsString"
+                    w.wl(s"""DJINNI_ASSERT_MSG(jret, jniEnv, "Got unexpected null return value from function $functionString");""")
+                    w.wl(s"return ${jniMarshal.toCpp(ty, "jret")};")
+                  }
+                  case _ =>
                 }
-                case _ =>
-              }
-              w.wl(s"return ${jniMarshal.toCpp(ty, "jret")};")
-            })
+                w.wl(s"return ${jniMarshal.toCpp(ty, "jret")};")
+              })
+            }
           }
         }
       }

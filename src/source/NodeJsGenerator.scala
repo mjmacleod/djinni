@@ -41,52 +41,91 @@ class NodeJsGenerator(spec: Spec, helperFiles: NodeJsHelperFilesDescriptor) exte
 
           val ret = cppMarshal.returnType(m.ret)
           val methodName = m.ident.name
+          val methodNameImpl =  if (cppMarshal.isMaybeAsync(m.ret)) m.ident.name + "_aimpl__" else methodName
           val params = m.params.map(p => cppMarshal.paramType(p.ty.resolved) + " " + idNode.local(p.ident))
           if (!m.static) {
             val constFlag = if (m.const) " const" else ""
             w.wl
-            w.wl(s"$ret $baseClassName::$methodName${params.mkString("(", ", ", ")")}$constFlag").braced {
-              w.wl("Nan::HandleScope scope;")
+            w.wl(s"$ret $baseClassName::$methodNameImpl${params.mkString("(", ", ", ")")}$constFlag").braced {
+                w.wl("Nan::HandleScope scope;")
 
-              w.wl("//Wrap parameters")
-              val countArgs = checkAndCastTypes(ident, i, m, w)
+                w.wl("//Wrap parameters")
+                val countArgs = checkAndCastTypes(ident, i, m, w)
 
-              //Windows complains about 0 sized arrays
-              val arraySize = if(countArgs == 0) 1 else countArgs
-              var args: String = s"Handle<Value> args[$arraySize"
-              if(countArgs > 0) {
-                args = s"${args}] = {"
-                for (i <- 0 to countArgs - 1) {
-                  args = s"${args}arg_$i"
-                  if (i < m.params.length - 1) {
-                    args = s"${args},"
-                  }
+
+                //Windows complains about 0 sized arrays
+                val arraySize = if(countArgs == 0) 1 else countArgs
+                var args: String = s"Handle<Value> args[$arraySize"
+                if(countArgs > 0) {
+                    args = s"${args}] = {"
+                    for (i <- 0 to countArgs - 1) {
+                        args = s"${args}arg_$i"
+                        if (i < m.params.length - 1) {
+                            args = s"${args},"
+                        }
+                    }
+                    w.wl(s"${args}};")
+                } else {
+                    w.wl(s"${args}];")
                 }
-                w.wl(s"${args}};")
-              } else {
-                w.wl(s"${args}];")
-              }
 
-              //Get local from persistent
-              w.wl("Local<Object> local_njs_impl = Nan::New<Object>(njs_impl);")
-              w.wl("if(!local_njs_impl->IsObject())").braced {
-                val error = s""""$baseClassName::$methodName fail to retrieve node implementation""""
-                w.wl(s"Nan::ThrowError($error);")
-              }
+                //Get local from persistent
+                w.wl("Local<Object> local_njs_impl = Nan::New<Object>(njs_impl);")
+                w.wl("if(!local_njs_impl->IsObject())").braced {
+                    val error = s""""$baseClassName::$methodName fail to retrieve node implementation""""
+                    w.wl(s"Nan::ThrowError($error);")
+                }
 
-              val quotedMethod = s""""$methodName""""
-              w.wl(s"auto calling_funtion = Nan::Get(local_njs_impl,Nan::New<String>($quotedMethod).ToLocalChecked()).ToLocalChecked();")
-              w.wl(s"auto result_$methodName = Nan::CallAsFunction(calling_funtion->ToObject(),local_njs_impl,$countArgs,args);")
-              w.wl(s"if(result_$methodName.IsEmpty())").braced {
-                val error = s""""$baseClassName::$methodName call failed""""
-                w.wl(s"Nan::ThrowError($error);")
-              }
+                val quotedMethod = s""""$methodName""""
+                w.wl(s"auto calling_funtion = Nan::Get(local_njs_impl,Nan::New<String>($quotedMethod).ToLocalChecked()).ToLocalChecked();")
+                w.wl(s"auto result_$methodName = Nan::CallAsFunction(calling_funtion->ToObject(),local_njs_impl,$countArgs,args);")
+                w.wl(s"if(result_$methodName.IsEmpty())").braced {
+                    val error = s""""$baseClassName::$methodName call failed""""
+                    w.wl(s"Nan::ThrowError($error);")
+                }
 
-              if (m.ret.isDefined && ret != "void") {
-                w.wl(s"auto checkedResult_$methodName = result_$methodName.ToLocalChecked();")
-                marshal.toCppArgument(m.ret.get.resolved, s"fResult_$methodName", s"checkedResult_$methodName", w)
-                w.wl(s"return fResult_$methodName;")
-              }
+                if (m.ret.isDefined && ret != "void") {
+                    w.wl(s"auto checkedResult_$methodName = result_$methodName.ToLocalChecked();")
+                    marshal.toCppArgument(m.ret.get.resolved, s"fResult_$methodName", s"checkedResult_$methodName", w)
+                    w.wl(s"return fResult_$methodName;")
+                }
+            }
+            if (methodNameImpl != methodName)
+            {
+                val types = m.params.map(p => cppMarshal.toCppType(p.ty.resolved, None, Seq()))
+                val names = m.params.map(p => idNode.local(p.ident))
+                var arg_type_list: String = if (types.length > 0) types.mkString(", ", ", ", "") else s""
+                var arg_get_list: String = s""
+                var arg_name_list: String = if (names.length > 0) names.mkString(", ", ", ", "") else s""
+                var tuple_type = s"$baseClassName*$arg_type_list"
+                if(types.length > 0) {
+                    for (i <- 0 to types.length - 1) {
+                        var get_pos = i + 1
+                        var get_string = s"std::get<${get_pos}>(*((std::tuple<$tuple_type>*)req->data))"
+                        if (i == 0)
+                        {
+                            arg_get_list = get_string
+                        }
+                        else
+                        {
+                            arg_get_list = s"${arg_get_list}, ${get_string}"
+                        }
+                    }
+                }
+                w.wl
+                w.wl(s"$ret $baseClassName::$methodName${params.mkString("(", ", ", ")")}$constFlag").braced {
+                    //fixme: Leaking requests
+                    w.wl(s"uv_work_t* request = new uv_work_t;")
+                    w.wl(s"request->data = new std::tuple<$tuple_type>(this$arg_name_list);")
+                    w.wl
+                    w.wl(s"uv_queue_work(uv_default_loop(), request, [](uv_work_t*) -> void{}, [](uv_work_t* req, int status) -> void").braced {
+                        w.wl(s"$baseClassName* pthis = std::get<0>(*((std::tuple<$tuple_type>*)req->data));")
+                        w.wl(s"pthis->$methodNameImpl($arg_get_list);")
+                        w.wl(s"delete (std::tuple<$tuple_type>*)req->data;")
+                        w.wl(s"req->data = nullptr;")
+                    }
+                    w.wl(s");")
+                }
             }
           }
         }
@@ -220,10 +259,19 @@ class NodeJsGenerator(spec: Spec, helperFiles: NodeJsHelperFilesDescriptor) exte
           // Methods
           w.wlOutdent("private:")
           for (m <- i.methods) {
+            val ret = cppMarshal.returnType(m.ret)
+            val params = m.params.map(p => cppMarshal.paramType(p.ty.resolved) + " " + idNode.local(p.ident))
             val methodName = m.ident.name
-              writeDoc(w, m.doc)
-              w.wl(s"static NAN_METHOD($methodName);")
-              w.wl
+            val methodNameImpl =  if (cppMarshal.isMaybeAsync(m.ret)) m.ident.name + "_aimpl__" else methodName
+            writeDoc(w, m.doc)
+            w.wl(s"static NAN_METHOD($methodName);")
+            if (methodNameImpl != methodName) {
+              if (!m.static) {
+                val constFlag = if (m.const) " const" else ""
+                w.wl(s"$ret $methodNameImpl${params.mkString("(", ", ", ")")}$constFlag;")
+              }
+            }
+            w.wl
           }
           //Add declaration of New (Nan) method
           w.wl(s"static NAN_METHOD(New);")

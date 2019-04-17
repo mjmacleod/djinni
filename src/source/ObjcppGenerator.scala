@@ -218,24 +218,26 @@ class ObjcppGenerator(spec: Spec) extends BaseObjcGenerator(spec) {
               val params = m.params.map(p => cppMarshal.fqParamType(p.ty) + " c_" + idCpp.local(p.ident))
               w.wl(s"$ret ${idCpp.method(m.ident)}${params.mkString("(", ", ", ")")} override").braced {
                 w.w("@autoreleasepool").braced {
-                  val ret = m.ret.fold("")(_ => "auto objcpp_result_ = ")
+                  val ret = if(objcppMarshal.isNullOrVoid(m.ret)) "" else " auto objcpp_result_ = "
                   val call = s"[djinni_private_get_proxied_objc_object() ${idObjc.method(m.ident)}"
                   writeAlignedObjcCall(w, ret + call, m.params, "]", p => (idObjc.field(p.ident), s"(${objcppMarshal.fromCpp(p.ty, "c_" + idCpp.local(p.ident))})"))
                   w.wl(";")
-                  m.ret.fold()(ty => {
-                    if (spec.cppNnCheckExpression.nonEmpty && isInterface(ty.resolved)) {
-                      // We have a non-optional interface, so assert that we're getting a non-null value
-                      // before putting it into a non-null pointer
-                      val stringWriter = new StringWriter()
-                      writeObjcFuncDecl(m, new IndentWriter(stringWriter))
-                      val singleLineFunctionDecl = stringWriter.toString.replaceAll("\n *", " ")
-                      val exceptionReason = s"Got unexpected null return value from function $objcSelf $singleLineFunctionDecl"
-                      w.w(s"if (objcpp_result_ == nil)").braced {
-                        w.wl(s"""throw std::invalid_argument("$exceptionReason");""")
+                  if(!objcppMarshal.isNullOrVoid(m.ret)) {
+                    m.ret.fold()(ty => {
+                      if (spec.cppNnCheckExpression.nonEmpty && isInterface(ty.resolved)) {
+                        // We have a non-optional interface, so assert that we're getting a non-null value
+                        // before putting it into a non-null pointer
+                        val stringWriter = new StringWriter()
+                        writeObjcFuncDecl(m, new IndentWriter(stringWriter))
+                        val singleLineFunctionDecl = stringWriter.toString.replaceAll("\n *", " ")
+                        val exceptionReason = s"Got unexpected null return value from function $objcSelf $singleLineFunctionDecl"
+                        w.w(s"if (objcpp_result_ == nil)").braced {
+                          w.wl(s"""throw std::invalid_argument("$exceptionReason");""")
+                        }
                       }
-                    }
-                    w.wl(s"return ${objcppMarshal.toCpp(ty, "objcpp_result_")};")
-                  })
+                      w.wl(s"return ${objcppMarshal.toCpp(ty, "objcpp_result_")};")
+                    })
+                  }
                 }
               }
             }

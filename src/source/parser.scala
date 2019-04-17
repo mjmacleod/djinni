@@ -206,7 +206,7 @@ private object IdlParser extends RegexParsers {
     case ident~typeArgs => TypeExpr(ident, typeArgs)
   }
 
-  def ident: Parser[Ident] = pos(regex("""[A-Za-z_][A-Za-z_0-9]*""".r)) ^^ {
+  def ident: Parser[Ident] = pos(regex("""([A-Za-z_][A-Za-z_0-9]*)|[&]""".r)) ^^ {
     case (s, p) => Ident(s, fileStack.top, p)
   }
 
