@@ -31,10 +31,6 @@ class NodeJsGenerator(spec: Spec, helperFiles: NodeJsHelperFilesDescriptor) exte
         val hppFileName = "#include \"" + idNode.ty(ident.name) + "." + spec.cppHeaderExt + "\""
         w.wl
         w.wl(hppFileName)
-        w.wl("#include \""+ helperFiles.ObjectWrapperHeader + "\"")
-        w.wl
-        w.wl("using namespace v8;")
-        w.wl("using namespace node;")
         w.wl("using namespace std;")
 
         for (m <- i.methods) {
@@ -47,41 +43,26 @@ class NodeJsGenerator(spec: Spec, helperFiles: NodeJsHelperFilesDescriptor) exte
             val constFlag = if (m.const) " const" else ""
             w.wl
             w.wl(s"$ret $baseClassName::$methodNameImpl${params.mkString("(", ", ", ")")}$constFlag").braced {
-                w.wl("Nan::HandleScope scope;")
+                w.wl("const auto& env = Env();")
+                w.wl("Napi::HandleScope scope(env);")
 
                 w.wl("//Wrap parameters")
-                val countArgs = checkAndCastTypes(ident, i, m, w)
-
-
-                //Windows complains about 0 sized arrays
-                val arraySize = if(countArgs == 0) 1 else countArgs
-                var args: String = s"Handle<Value> args[$arraySize"
-                if(countArgs > 0) {
-                    args = s"${args}] = {"
-                    for (i <- 0 to countArgs - 1) {
-                        args = s"${args}arg_$i"
-                        if (i < m.params.length - 1) {
-                            args = s"${args},"
-                        }
-                    }
-                    w.wl(s"${args}};")
-                } else {
-                    w.wl(s"${args}];")
-                }
+                w.wl("std::vector<napi_value> args;")
+                checkAndCastTypes(ident, i, m, w)
 
                 //Get local from persistent
-                w.wl("Local<Object> local_njs_impl = Nan::New<Object>(njs_impl);")
-                w.wl("if(!local_njs_impl->IsObject())").braced {
-                    val error = s""""$baseClassName::$methodName fail to retrieve node implementation""""
-                    w.wl(s"Nan::ThrowError($error);")
-                }
+                //w.wl("Local<Object> local_njs_impl = Nan::New<Object>(njs_impl);")
+                //w.wl("if(!local_njs_impl->IsObject())").braced {
+                    //val error = s""""$baseClassName::$methodName fail to retrieve node implementation""""
+                    //w.wl(s"Napi::Error::New(env, $error).ThrowAsJavaScriptException();")
+                //}
 
                 val quotedMethod = s""""$methodName""""
-                w.wl(s"auto calling_funtion = Nan::Get(local_njs_impl,Nan::New<String>($quotedMethod).ToLocalChecked()).ToLocalChecked();")
-                w.wl(s"auto result_$methodName = Nan::CallAsFunction(calling_funtion->ToObject(),local_njs_impl,$countArgs,args);")
+                w.wl(s"Napi::Function calling_function = Value().Get($quotedMethod).As<Napi::Function>();")
+                w.wl(s"auto result_$methodName = calling_function.Call(args);")
                 w.wl(s"if(result_$methodName.IsEmpty())").braced {
                     val error = s""""$baseClassName::$methodName call failed""""
-                    w.wl(s"Nan::ThrowError($error);")
+                    w.wl(s"Napi::Error::New(env, $error).ThrowAsJavaScriptException();")
                 }
 
                 if (m.ret.isDefined && ret != "void") {
@@ -129,10 +110,10 @@ class NodeJsGenerator(spec: Spec, helperFiles: NodeJsHelperFilesDescriptor) exte
             }
           }
         }
-        w.wl
-        createNanNewMethod(ident, i, None, w)
-        w.wl
-        createWrapMethod(ident, i, w)
+        //w.wl
+        //createNanNewMethod(ident, i, None, w)
+        //w.wl
+        //createWrapMethod(ident, i, w)
         w.wl
         createInitializeMethod(ident, i, w)
       })
@@ -195,12 +176,10 @@ class NodeJsGenerator(spec: Spec, helperFiles: NodeJsHelperFilesDescriptor) exte
         }
 
         w.wl
-        w.wl("#include <nan.h>")
-        w.wl("#include <node.h>")
+        w.wl("#include <napi.h>")
+        w.wl("#include <uv.h>")
         w.wl(s"#include $cppInterfaceHpp")
         w.wl
-        w.wl("using namespace v8;")
-        w.wl("using namespace node;")
         w.wl("using namespace std;")
         if (spec.cppNamespace.nonEmpty) {
             w.wl(s"using namespace ${spec.cppNamespace};")
@@ -211,35 +190,31 @@ class NodeJsGenerator(spec: Spec, helperFiles: NodeJsHelperFilesDescriptor) exte
           refs.hppFwds.foreach(w.wl)
         }
 
-        var classInheritance = s"class $className final"
+        var classInheritance = s"class $className: public Napi::ObjectWrap<$className>"
         if (nodeMode) {
-          classInheritance = s"class $className: public ${spec.cppNamespace}::$cppClassName"
+          classInheritance = s"class $className: public ${spec.cppNamespace}::$cppClassName, public Napi::ObjectWrap<$className>"
         }
         w.wl
         w.w(classInheritance).bracedSemi {
 
           w.wlOutdent("public:")
           w.wl
-          w.wl(s"static void Initialize(Local<Object> target);")
-          if (!nodeMode) {
+          w.wl("static Napi::FunctionReference constructor;")
+          w.wl(s"static Napi::Object Init(Napi::Env env, Napi::Object exports);")
+          //if (!nodeMode) {
             //Constructor
-            w.wl(s"$className() = delete;")
-          }
-
-          //Object prototype and static wrap method (from c++ to v8/Nan object)
-          w.wl
-          w.wl(s"static Local<Object> wrap(const $cpp_shared_ptr &object);")
-          w.wl(s"static Nan::Persistent<ObjectTemplate> ${cppClassName}_prototype;")
+            w.wl(s"$className(const Napi::CallbackInfo& info) : Napi::ObjectWrap<$className>(info){};")
+          //}
 
           if (nodeMode) {
 
             // Destructor
-            w.wl(s"~$className()").bracedSemi {
-                w.wl("njs_impl.Reset();")
-            }
+            //w.wl(s"~$className()").bracedSemi {
+                //w.wl("njs_impl.Reset();")
+            //}
 
             //Constructor
-            w.wl(s"$className(Local<Object> njs_implementation){njs_impl.Reset(njs_implementation);};")
+            //w.wl(s"$className(/*Local<Object> njs_implementation*/){/*njs_impl.Reset(njs_implementation);*/};")
 
             //For node implementation, use C++ types
             for (m <- i.methods) {
@@ -264,7 +239,11 @@ class NodeJsGenerator(spec: Spec, helperFiles: NodeJsHelperFilesDescriptor) exte
             val methodName = m.ident.name
             val methodNameImpl =  if (cppMarshal.isMaybeAsync(m.ret)) m.ident.name + "_aimpl__" else methodName
             writeDoc(w, m.doc)
-            w.wl(s"static NAN_METHOD($methodName);")
+            var nodeRet = "void";
+            if (m.ret.isDefined && ret != "void") {
+                nodeRet = "Napi::Value";
+            }
+            w.wl(s"$nodeRet $methodName(const Napi::CallbackInfo& info);")
             if (methodNameImpl != methodName) {
               if (!m.static) {
                 val constFlag = if (m.const) " const" else ""
@@ -274,13 +253,13 @@ class NodeJsGenerator(spec: Spec, helperFiles: NodeJsHelperFilesDescriptor) exte
             w.wl
           }
           //Add declaration of New (Nan) method
-          w.wl(s"static NAN_METHOD(New);")
-          w.wl
+          //w.wl(s"static Napi::Value New(const Napi::CallbackInfo& info)")
+          //w.wl
           if (!nodeMode) {
             //Implementation in C++
-            w.wl(s"static NAN_METHOD(isNull);")
+            //w.wl(s"static Napi::Value isNull(const Napi::CallbackInfo& info);")
           } else {
-            w.wl("Nan::Persistent<Object> njs_impl;")
+            //w.wl("Napi::ObjectReference njs_impl;")
           }
         }
         w.wl(s"#endif //$define")
@@ -288,17 +267,17 @@ class NodeJsGenerator(spec: Spec, helperFiles: NodeJsHelperFilesDescriptor) exte
     }
   }
 
-  protected def createNanNewMethod(ident: Ident, i: Interface, factory: Option[Interface.Method], wr: writer.IndentWriter): Unit = {
+/*  protected def createNanNewMethod(ident: Ident, i: Interface, factory: Option[Interface.Method], wr: writer.IndentWriter): Unit = {
 
     val baseClassName = marshal.typename(ident, i)
     val cppClassName = cppMarshal.typename(ident, i)
 
-    wr.w(s"NAN_METHOD($baseClassName::New)").braced {
+    wr.w(s"Napi::Value $baseClassName::New(const Napi::CallbackInfo& info)").braced {
 
       wr.wl("//Only new allowed")
       wr.wl("if(!info.IsConstructCall())").braced {
         val error = s""""$baseClassName function can only be called as constructor (use New)""""
-        wr.wl(s"return Nan::ThrowError($error);")
+        wr.wl(s"return Napi::Error::New(env, $error).ThrowAsJavaScriptException();")
       }
 
       //TODO: if no factory ?
@@ -311,7 +290,7 @@ class NodeJsGenerator(spec: Spec, helperFiles: NodeJsHelperFilesDescriptor) exte
         wr.wl(s"//Check if $baseClassName::New called with right number of arguments")
         wr.wl(s"if(info.Length() != $factoryArgsLength)").braced {
           val error = s""""$baseClassName::New needs same number of arguments as ${spec.cppNamespace}::$cppClassName::$factoryName method""""
-          wr.wl(s"return Nan::ThrowError($error);")
+          wr.wl(s"return Napi::Error::New(env, $error).ThrowAsJavaScriptException();")
         }
 
         //TODO: create an unwrap function
@@ -335,14 +314,14 @@ class NodeJsGenerator(spec: Spec, helperFiles: NodeJsHelperFilesDescriptor) exte
       if (i.ext.nodeJS) {
         wr.wl("if(!info[0]->IsObject())").braced {
             val error = s""""$baseClassName::New requires an implementation from node""""
-            wr.wl(s"return Nan::ThrowError($error);")
+            wr.wl(s"return Napi::Error::New(env, $error).ThrowAsJavaScriptException();")
         }
         wr.wl(s"auto node_instance = std::make_shared<$baseClassName>(info[0]->ToObject());")
         wr.wl(s"djinni::js::ObjectWrapper<$baseClassName>::Wrap(node_instance, info.This());")
       }
       wr.wl("info.GetReturnValue().Set(info.This());")
     }
-  }
+  }*/
 
   protected def checkAndCastTypes(ident: Ident, i: Interface, method: Interface.Method, wr: writer.IndentWriter): Int = {
 
@@ -353,6 +332,7 @@ class NodeJsGenerator(spec: Spec, helperFiles: NodeJsHelperFilesDescriptor) exte
         marshal.toCppArgument(p.ty.resolved, s"arg_$index", s"info[$index]", wr)
       } else {
         marshal.fromCppArgument(p.ty.resolved, s"arg_$index", idNode.local(p.ident), wr)
+        wr.wl(s"args.push_back(arg_$index);")
       }
       count = count + 1
     })
@@ -362,39 +342,44 @@ class NodeJsGenerator(spec: Spec, helperFiles: NodeJsHelperFilesDescriptor) exte
   protected def createInitializeMethod(ident: Ident, i: Interface, wr: writer.IndentWriter): Unit = {
 
     val baseClassName = marshal.typename(ident, i)
-    wr.w(s"void $baseClassName::Initialize(Local<Object> target)").braced {
-      wr.wl("Nan::HandleScope scope;")
-      wr.wl
-      wr.wl(s"Local<FunctionTemplate> func_template = Nan::New<FunctionTemplate>($baseClassName::New);")
-      wr.wl("Local<ObjectTemplate> objectTemplate = func_template->InstanceTemplate();")
-      wr.wl("objectTemplate->SetInternalFieldCount(1);")
-      val quotedClassName = "\"" + baseClassName + "\""
-      wr.wl
-      wr.wl(s"func_template->SetClassName(Nan::New<String>($quotedClassName).ToLocalChecked());")
-      if (i.ext.cpp) {
+    val quotedClassName = "\"" + baseClassName + "\""
+    
+    wr.wl(s"Napi::FunctionReference $baseClassName::constructor;")
+    wr.wl
+    wr.w(s"Napi::Object $baseClassName::Init(Napi::Env env, Napi::Object exports)").braced
+    {
         wr.wl
-        wr.wl(s"//SetPrototypeMethod all methods")
-        for (m <- i.methods) {
-          //if (!m.static) {
-            val methodName = m.ident.name
-            val quotedMethodName = "\"" + methodName + "\""
-            wr.wl(s"Nan::SetPrototypeMethod(func_template,$quotedMethodName, $methodName);")
-          //}
+        if (i.ext.cpp)
+        {
+            wr.wl("// Hook all method callbacks")
+            wr.wl(s"Napi::Function func = DefineClass(env, $quotedClassName, {")
+            
+            
+                for (m <- i.methods)
+                {
+                    val methodName = m.ident.name
+                    val quotedMethodName = "\"" + methodName + "\""
+                    wr.wl(s"InstanceMethod($quotedMethodName, &$baseClassName::$methodName),")
+                }
+                //val quotedNull = "\"isNull\""
+                //wr.wl(s"InstanceMethod<&$baseClassName::isNull>($quotedNull),")
+            wr.wl("});")
+
+            wr.wl("// Create a peristent reference to the class constructor. This will allow a function called on a class prototype and a function called on instance of a class to be distinguished from each other.")
+            wr.wl("constructor = Napi::Persistent(func);")
+            wr.wl("// Call the SuppressDestruct() method on the static data prevent the calling to this destructor to reset the reference when the environment is no longer available.")
+            wr.wl("constructor.SuppressDestruct();")
+            wr.wl(s"exports.Set($quotedClassName, func);")
         }
-        wr.wl("Nan::SetPrototypeMethod(func_template,\"isNull\", isNull);")
-      } else {
-        wr.wl("Nan::SetPrototypeMethod(func_template,\"New\", New);")
-      }
-
-      val cppClassName = cppMarshal.typename(ident, i)
-      wr.wl("//Set object prototype")
-      wr.wl(s"${cppClassName}_prototype.Reset(objectTemplate);")
-
-      wr.wl
-      wr.wl(s"//Add template to target")
-      wr.wl(s"target->Set(Nan::New<String>($quotedClassName).ToLocalChecked(), func_template->GetFunction());")
+        else
+        {
+            wr.wl(s"Napi::Function func = DefineClass(env, $quotedClassName,{});")
+            wr.wl("constructor = Napi::Persistent(func);")
+            wr.wl("constructor.SuppressDestruct();")
+            wr.wl(s"exports.Set($quotedClassName, func);")
+        }
+        wr.wl("return exports;")
     }
-
   }
 
   override def generateEnum(origin: String, ident: Ident, doc: Doc, e: Enum): Unit = {}
@@ -424,7 +409,7 @@ class NodeJsGenerator(spec: Spec, helperFiles: NodeJsHelperFilesDescriptor) exte
     }
   }
 
-  def createWrapMethod(ident: Ident, i: Interface, wr: writer.IndentWriter): Unit = {
+  /*def createWrapMethod(ident: Ident, i: Interface, wr: writer.IndentWriter): Unit = {
     val baseClassName = marshal.typename(ident, i)
     val cppClassName = cppMarshal.typename(ident, i)
     val cppClassNameWithNamespace = spec.cppNamespace + "::" + cppClassName
@@ -434,7 +419,7 @@ class NodeJsGenerator(spec: Spec, helperFiles: NodeJsHelperFilesDescriptor) exte
     wr.wl
     wr.w(s"Local<Object> $baseClassName::wrap(const $cpp_shared_ptr &object)").braced {
 
-      wr.wl("Nan::EscapableHandleScope scope;")
+      wr.wl("Napi::EscapableHandleScope scope(env);")
 
       wr.wl(s"Local<ObjectTemplate> local_prototype = Nan::New(${cppClassName}_prototype);")
       wr.wl
@@ -445,12 +430,12 @@ class NodeJsGenerator(spec: Spec, helperFiles: NodeJsHelperFilesDescriptor) exte
       }
       wr.wl("else").braced {
         val error = s""""$baseClassName::wrap: object template not valid""""
-        wr.wl(s"Nan::ThrowError($error);")
+        wr.wl(s"Napi::Error::New(env, $error).ThrowAsJavaScriptException();")
       }
 
       wr.wl("return scope.Escape(obj);")
     }
-  }
+  }*/
 }
 
 

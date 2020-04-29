@@ -87,9 +87,9 @@ case object MMap extends MOpaque { val numParams = 2; val idlName = "map" }
 
 //                     idl    jName      jniName     cName     jBoxed     jSig     objcName   objcBoxed  nodeJSNAME jsName     maybeAsync
 val defaults: Map[String,MOpaque] = immutable.HashMap(
-  ("i8"   ,MPrimitive("i8"    ,"byte"    ,"jbyte"    ,"int8_t"  ,"Byte"    ,"B"    ,"int8_t"  ,"NSNumber" ,"Int32"   ,"number"  ,false)),
-  ("i16"  ,MPrimitive("i16"   ,"short"   ,"jshort"   ,"int16_t" ,"Short"   ,"S"    ,"int16_t" ,"NSNumber" ,"Int32"   ,"number"  ,false)),
-  ("i32"  ,MPrimitive("i32"   ,"int"     ,"jint"     ,"int32_t" ,"Integer" ,"I"    ,"int32_t" ,"NSNumber" ,"Int32"   ,"number"  ,false)),
+  ("i8"   ,MPrimitive("i8"    ,"byte"    ,"jbyte"    ,"int8_t"  ,"Byte"    ,"B"    ,"int8_t"  ,"NSNumber" ,"Number"   ,"number"  ,false)),
+  ("i16"  ,MPrimitive("i16"   ,"short"   ,"jshort"   ,"int16_t" ,"Short"   ,"S"    ,"int16_t" ,"NSNumber" ,"Number"   ,"number"  ,false)),
+  ("i32"  ,MPrimitive("i32"   ,"int"     ,"jint"     ,"int32_t" ,"Integer" ,"I"    ,"int32_t" ,"NSNumber" ,"Number"   ,"number"  ,false)),
   ("i64"  ,MPrimitive("i64"   ,"long"    ,"jlong"    ,"int64_t" ,"Long"    ,"J"    ,"int64_t" ,"NSNumber" ,"Number"  ,"number"  ,false)),
   ("f32"  ,MPrimitive("f32"   ,"float"   ,"jfloat"   ,"float"   ,"Float"   ,"F"    ,"float"   ,"NSNumber" ,"Number"  ,"number"  ,false)),
   ("f64"  ,MPrimitive("f64"   ,"double"  ,"jdouble"  ,"double"  ,"Double"  ,"D"    ,"double"  ,"NSNumber" ,"Number"  ,"number"  ,false)),

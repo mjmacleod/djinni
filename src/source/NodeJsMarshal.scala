@@ -199,7 +199,7 @@ class NodeJsMarshal(spec: Spec) extends CppMarshal(spec) {
       def toVector(cppTemplType: String, nodeTemplType: String): IndentWriter = {
         val containerName = s"${converted}_container"
         wr.wl(s"vector<$cppTemplType> $converted;")
-        wr.wl(s"Local<$container> $containerName = Local<$container>::Cast($converting);")
+        wr.wl(s"auto $containerName = Local<$container>::Cast($converting);")
         wr.wl(s"for(uint32_t ${converted}_id = 0; ${converted}_id < $containerName->Length(); ${converted}_id++)").braced {
           wr.wl(s"if($containerName->Get(${converted}_id)->Is$nodeTemplType())").braced {
             //Cast to c++ types
@@ -228,22 +228,15 @@ class NodeJsMarshal(spec: Spec) extends CppMarshal(spec) {
 
           val containerName = s"${converted}_container"
           wr.wl(s"unordered_map<$cppTemplType, $cppTemplValueType> $converted;")
-          wr.wl(s"Local<$container> $containerName = Local<$container>::Cast($converting);")
 
           //Get properties' names, loop over them and get their values
-          val propretyNames = s"${converted}_prop_names"
-          wr.wl(s"auto $propretyNames = $containerName->GetPropertyNames();")
-          wr.wl(s"for(uint32_t ${converted}_id = 0; ${converted}_id < $propretyNames->Length(); ${converted}_id++)").braced {
-            wr.wl(s"auto key = $propretyNames->Get(${converted}_id);")
-            //Check types before access
-            wr.wl(s"auto ${converted}_key_ctx = $containerName->Get(Nan::GetCurrentContext(), key).ToLocalChecked();")
-            wr.wl(s"if(key->Is$nodeTemplType() && ${converted}_key_ctx->Is$nodeTemplValueType())").braced {
-              //Cast to c++ types
-              toCppArgument(tm.args(0), s"${converted}_key", "key", wr)
-              toCppArgument(tm.args(1), s"${converted}_value", s"${converted}_key_ctx", wr)
-              //Append to resulting container
-              wr.wl(s"$converted.emplace(${converted}_key,${converted}_value);")
-            }
+          val propertyNames = s"${converted}_prop_names"
+          wr.wl(s"auto $propertyNames = $converting.ToObject().GetPropertyNames();")
+          wr.wl(s"for(uint32_t ${converted}_id = 0; ${converted}_id < $propertyNames.Length(); ${converted}_id++)").braced {
+            wr.wl(s"std::string ${converted}_key = $propertyNames.Get(${converted}_id).ToString();")
+            wr.wl(s"std::string ${converted}_value = $propertyNames.Get(${converted}_key).ToString();")
+            //Append to resulting container
+            wr.wl(s"$converted.emplace(${converted}_key,${converted}_value);")
           }
           wr.wl
         } else {
@@ -255,10 +248,12 @@ class NodeJsMarshal(spec: Spec) extends CppMarshal(spec) {
 
     }
 
-    def toSupportedCppNativeTypes(inputType: String): String = {
+    def toSupportedCppNativeTypes(inputVarName:String, inputType: String): String = {
       inputType match {
-        case "int8_t" | "int16_t" => "int32_t"
-        case "float" => "double"
+        case "int8_t" | "int16_t" | "int32_t" => s"$inputVarName.ToNumber().Int32Value()"
+        case "int64_t" => s"$inputVarName.ToNumber().Int64Value()"
+        case "float" | "double" => s"$inputVarName.ToNumber().DoubleValue()"
+        case "bool" => s"$inputVarName.ToBoolean().Value()"
         case _ => inputType
       }
     }
@@ -271,10 +266,10 @@ class NodeJsMarshal(spec: Spec) extends CppMarshal(spec) {
     val nodeType = paramType(tm)
 
     def base(m: Meta): IndentWriter = m match {
-      case p: MPrimitive => wr.wl(s"auto $converted = Nan::To<${toSupportedCppNativeTypes(p.cName)}>($converting).FromJust();")
+      case p: MPrimitive => 
+        wr.wl(s"auto $converted = ${toSupportedCppNativeTypes(converting, p.cName)};")
       case MString =>
-        wr.wl(s"String::Utf8Value string_$converted($converting->ToString());")
-        wr.wl(s"auto $converted = std::string(*string_$converted);")
+        wr.wl(s"std::string $converted = $converting.As<Napi::String>();")
       case MDate => {
         wr.wl(s"auto time_$converted = Nan::To<int32_t>($converting).FromJust();")
         wr.wl(s"auto $converted = chrono::system_clock::time_point(chrono::milliseconds(time_$converted));")
@@ -316,7 +311,7 @@ class NodeJsMarshal(spec: Spec) extends CppMarshal(spec) {
               wr.wl
               val fieldName = idCpp.field(f.ident)
               val quotedFieldName = s""""$fieldName""""
-              wr.wl(s"auto field_${converted}_$count = Nan::Get($converting->ToObject(), Nan::New<String>($quotedFieldName).ToLocalChecked()).ToLocalChecked();")
+              wr.wl(s"auto field_${converted}_$count = $converting.ToObject().Get($quotedFieldName);")
               toCppArgument(f.ty.resolved, s"${converted}_$count", s"field_${converted}_$count", wr)
               listOfRecordArgs += s"${converted}_$count"
               count = count + 1
@@ -324,13 +319,12 @@ class NodeJsMarshal(spec: Spec) extends CppMarshal(spec) {
             wr.wl(s"${idCpp.ty(d.name)} $converted${listOfRecordArgs.toList.mkString("(", ", ", ")")};")
             wr.wl
           case i: Interface =>
-            wr.wl(s"Local<Object> njs_$converted = $converting->ToObject(Nan::GetCurrentContext()).ToLocalChecked();")
-            wr.wl(s"auto $converted = djinni::js::ObjectWrapper<$interfaceName>::Unwrap(njs_$converted);");
+            wr.wl(s"std::shared_ptr<$interfaceName> $converted(Napi::ObjectWrap<$interfaceName>::Unwrap($converting.As<Napi::Object>()));");
 
             if(i.ext.cpp){
               wr.wl(s"if(!$converted)").braced{
                 val error = s""""NodeJs Object to $nodeType failed""""
-                wr.wl(s"return Nan::ThrowError($error);")
+                wr.wl(s"Napi::Error::New(env, $error).ThrowAsJavaScriptException();")
               }
             }
             wr.wl
@@ -351,16 +345,16 @@ class NodeJsMarshal(spec: Spec) extends CppMarshal(spec) {
     def fromCppContainer(container: String, binary: Boolean = false): IndentWriter = {
 
       def fromVector(): IndentWriter = {
-        wr.wl(s"Local<$container> $converted = Nan::New<$container>();")
+        wr.wl(s"auto $converted = Napi::$container::New(env);")
         //Loop and cast elements of $converting
         wr.wl(s"for(size_t ${converted}_id = 0; ${converted}_id < $converting.size(); ${converted}_id++)").braced {
           //Cast
           if (!binary) {
             fromCppArgument(tm.args(0), s"${converted}_elem", s"$converting[${converted}_id]", wr)
           } else {
-            wr.wl(s"auto ${converted}_elem = Nan::New<Uint32>($converting[${converted}_id]);")
+            wr.wl(s"auto ${converted}_elem = Napi::Number::New(env, $converting[${converted}_id]);")
           }
-          wr.wl(s"$converted->Set((int)${converted}_id,${converted}_elem);")
+          wr.wl(s"$converted.Set((int)${converted}_id,${converted}_elem);")
         }
         wr.wl
       }
@@ -368,13 +362,13 @@ class NodeJsMarshal(spec: Spec) extends CppMarshal(spec) {
       if (!tm.args.isEmpty) {
 
         if (container == "Map" && tm.args.length > 1) {
-          wr.wl(s"Local<$container> $converted = Map::New((Nan::GetCurrentContext())->GetIsolate());")
+          wr.wl(s"auto $converted = Map::New((Nan::GetCurrentContext())->GetIsolate());")
           //Loop and cast elements of $converting
           wr.wl(s"for(auto const& ${converted}_elem : $converting)").braced {
             //Cast
             fromCppArgument(tm.args(0), s"${converted}_first", s"${converted}_elem.first", wr)
             fromCppArgument(tm.args(1), s"${converted}_second", s"${converted}_elem.second", wr)
-            wr.wl(s"$converted->Set(Nan::GetCurrentContext(), ${converted}_first, ${converted}_second);")
+            wr.wl(s"$converted.Set(Nan::GetCurrentContext(), ${converted}_first, ${converted}_second);")
           }
           wr.wl
 
@@ -388,8 +382,7 @@ class NodeJsMarshal(spec: Spec) extends CppMarshal(spec) {
     }
 
     def simpleCheckedCast(nodeType: String, toCheck: Boolean = true): String = {
-      val cast = s"auto $converted = Nan::New<$nodeType>($converting)"
-      if (toCheck) s"$cast.ToLocalChecked();" else s"$cast;"
+      s"auto $converted = Napi::$nodeType::New(env, $converting);"
     }
     def base(m: Meta): IndentWriter = m match {
       case p: MPrimitive => wr.wl(simpleCheckedCast(p.nodeJSName, false))
@@ -417,16 +410,16 @@ class NodeJsMarshal(spec: Spec) extends CppMarshal(spec) {
       case MMap => fromCppContainer("Map")
       case d: MDef =>
         d.body match {
-          case e: Enum => wr.wl(s"auto $converted = Nan::New<Integer>((int)$converting);")
+          case e: Enum => wr.wl(s"auto $converted = Napi::Number::New(env, (int)$converting);")
           case r: Record =>
             // Field definitions.
-            wr.wl(s"auto $converted = Nan::New<Object>();")
+            wr.wl(s"auto $converted = Napi::Object::New(env);")
             var count = 1
             for (f <- r.fields) {
               val fieldName = idCpp.field(f.ident)
               fromCppArgument(f.ty.resolved, s"${converted}_$count", s"$converting.$fieldName", wr)
               val quotedFieldName = s""""$fieldName""""
-              wr.wl(s"Nan::DefineOwnProperty($converted, Nan::New<String>($quotedFieldName).ToLocalChecked(), ${converted}_$count);")
+              wr.wl(s"$converted.Set($quotedFieldName, ${converted}_$count);")
               count = count + 1
             }
             wr.wl
