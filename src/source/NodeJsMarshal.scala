@@ -191,10 +191,10 @@ class NodeJsMarshal(spec: Spec) extends CppMarshal(spec) {
 
   override def fromCpp(tm: MExpr, expr: String): String = throw new AssertionError("cpp to cpp conversion")
 
-  def toCppArgument(tm: MExpr, converted: String, converting: String, wr: IndentWriter): IndentWriter = {
+  def toCppArgument(tm: MExpr, converted: String, converting: String, wr: IndentWriter, errorReturnIsVoid: Boolean): IndentWriter = {
 
     //Cast of List, Set and Map
-    def toCppContainer(container: String, binary: Boolean = false): IndentWriter = {
+    def toCppContainer(container: String, binary: Boolean = false, errorReturnIsVoid: Boolean = false): IndentWriter = {
 
       def toVector(cppTemplType: String, nodeTemplType: String): IndentWriter = {
         val containerName = s"${converted}_container"
@@ -204,7 +204,7 @@ class NodeJsMarshal(spec: Spec) extends CppMarshal(spec) {
           wr.wl(s"if($containerName->Get(${converted}_id)->Is$nodeTemplType())").braced {
             //Cast to c++ types
             if (!binary) {
-              toCppArgument(tm.args(0), s"${converted}_elem", s"$containerName->Get(${converted}_id)", wr)
+              toCppArgument(tm.args(0), s"${converted}_elem", s"$containerName->Get(${converted}_id)", wr, errorReturnIsVoid)
             } else {
               //val context = "info.GetIsolate()->GetCurrentContext()"
               wr.wl(s"auto ${converted}_elem = Nan::To<uint32_t>($containerName->Get(${converted}_id)).FromJust();")
@@ -265,7 +265,7 @@ class NodeJsMarshal(spec: Spec) extends CppMarshal(spec) {
     }
     val nodeType = paramType(tm)
 
-    def base(m: Meta): IndentWriter = m match {
+    def base(m: Meta, errorReturnIsVoid: Boolean): IndentWriter = m match {
       case p: MPrimitive => 
         wr.wl(s"auto $converted = ${toSupportedCppNativeTypes(converting, p.cName)};")
       case MString =>
@@ -274,7 +274,7 @@ class NodeJsMarshal(spec: Spec) extends CppMarshal(spec) {
         wr.wl(s"auto time_$converted = Nan::To<int32_t>($converting).FromJust();")
         wr.wl(s"auto $converted = chrono::system_clock::time_point(chrono::milliseconds(time_$converted));")
       }
-      case MBinary => toCppContainer("Array", binary = true)
+      case MBinary => toCppContainer("Array", binary = true, errorReturnIsVoid)
       case MOptional => {
 
         val start = cppType.indexOf("<")
@@ -286,7 +286,7 @@ class NodeJsMarshal(spec: Spec) extends CppMarshal(spec) {
         }
 
         wr.wl(s"if(!$converting->IsNull() && !$converting->IsUndefined())").braced {
-          toCppArgument(tm.args(0), s"opt_$converted", converting, wr)
+          toCppArgument(tm.args(0), s"opt_$converted", converting, wr, errorReturnIsVoid)
           if(isInterface(tm.args(0))) {
             wr.wl(s"$converted = opt_$converted;")
           } else {
@@ -295,9 +295,9 @@ class NodeJsMarshal(spec: Spec) extends CppMarshal(spec) {
         }
         wr.wl
       }
-      case MList => toCppContainer("Array")
-      case MSet => toCppContainer("Set")
-      case MMap => toCppContainer("Map")
+      case MList => toCppContainer("Array", binary = false, errorReturnIsVoid)
+      case MSet => toCppContainer("Set", binary = false, errorReturnIsVoid)
+      case MMap => toCppContainer("Map", binary = false, errorReturnIsVoid)
       case d: MDef =>
         d.body match {
           case e: Enum =>
@@ -312,7 +312,21 @@ class NodeJsMarshal(spec: Spec) extends CppMarshal(spec) {
               val fieldName = idCpp.field(f.ident)
               val quotedFieldName = s""""$fieldName""""
               wr.wl(s"auto field_${converted}_$count = $converting.ToObject().Get($quotedFieldName);")
-              toCppArgument(f.ty.resolved, s"${converted}_$count", s"field_${converted}_$count", wr)
+              wr.wl(s"if (field_${converted}_$count.IsEmpty() || field_${converted}_$count.IsUndefined())").braced
+              {
+                val quotedErrorMessage = s""""Object is missing '$fieldName' field""""
+                wr.wl(s"Napi::Error::New(env, $quotedErrorMessage).ThrowAsJavaScriptException();")
+                if (errorReturnIsVoid)
+                {
+                    wr.wl("return;")
+                }
+                else
+                {
+                    wr.wl("return Napi::Value();")
+                }
+              }
+              
+              toCppArgument(f.ty.resolved, s"${converted}_$count", s"field_${converted}_$count", wr, errorReturnIsVoid)
               listOfRecordArgs += s"${converted}_$count"
               count = count + 1
             }
@@ -336,7 +350,7 @@ class NodeJsMarshal(spec: Spec) extends CppMarshal(spec) {
       case p: MParam => wr.wl(idNode.typeParam(p.name))
     }
 
-    base(tm.base)
+    base(tm.base, errorReturnIsVoid)
   }
 
   def fromCppArgument(tm: MExpr, converted: String, converting: String, wr: IndentWriter): IndentWriter = {

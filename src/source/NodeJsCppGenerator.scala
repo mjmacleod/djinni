@@ -143,8 +143,14 @@ class NodeJsCppGenerator(spec: Spec, helperFiles: NodeJsHelperFilesDescriptor) e
 
             w.wl
             w.wl("//Check if parameters have correct types")
+            
+            var returnIsVoid = true;
+            if (m.ret.isDefined && cppRet != "void") {
+                returnIsVoid = false;
+            }
+            
             //Retrieve all method’s parameter and test their types
-            val countArgs = checkAndCastTypes(ident, i, m, w)
+            val countArgs = checkAndCastTypes(ident, i, m, w, returnIsVoid)
 
             //If it's static method no need to get C++ implementation
             if(!m.static) {
