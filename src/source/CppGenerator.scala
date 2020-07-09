@@ -328,6 +328,11 @@ class CppGenerator(spec: Spec) extends Generator(spec) {
     writeHppFile(ident, origin, refs.hpp, refs.hppFwds, w => {
       writeDoc(w, doc)
       writeCppTypeParams(w, typeParams)
+      val header = "\"NJS" + self + ".hpp\""
+      if (i.ext.nodeJS)
+      {
+        w.wl(s"#ifdef DJINNI_NODEJS\n#include $header \n#define $self NJS${self}\n#else\n")
+      }
       w.w(s"class $self").bracedSemi {
         w.wlOutdent("public:")
         // Destructor
@@ -347,6 +352,10 @@ class CppGenerator(spec: Spec) extends Generator(spec) {
             w.wl(s"virtual $ret ${idCpp.method(m.ident)}${params.mkString("(", ", ", ")")}$constFlag = 0;")
           }
         }
+      }
+      if (i.ext.nodeJS)
+      {
+        w.wl("#endif")
       }
     })
 

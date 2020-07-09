@@ -333,7 +333,7 @@ class NodeJsMarshal(spec: Spec) extends CppMarshal(spec) {
             wr.wl(s"${idCpp.ty(d.name)} $converted${listOfRecordArgs.toList.mkString("(", ", ", ")")};")
             wr.wl
           case i: Interface =>
-            wr.wl(s"std::shared_ptr<$interfaceName> $converted(Napi::ObjectWrap<$interfaceName>::Unwrap($converting.As<Napi::Object>()));");
+            wr.wl(s"std::shared_ptr<$nodeType> $converted(std::shared_ptr<$nodeType>{}, $nodeType::Unwrap($converting.As<Napi::Object>()));");
 
             if(i.ext.cpp){
               wr.wl(s"if(!$converted)").braced{

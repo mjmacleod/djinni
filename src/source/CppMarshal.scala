@@ -92,7 +92,8 @@ private def toMaybeAsync(ty: TypeRef): Boolean = ty.resolved.base match {
         }
       case i: Interface =>
         val base = if (d.name != exclude) {
-          List(ImportRef("<memory>"), DeclRef(s"class ${typename(d.name, d.body)};", Some(spec.cppNamespace)))
+          val header = "\"NJS" + typename(d.name, d.body) + ".hpp\"";
+          List(ImportRef("<memory>"), DeclRef(s"#ifdef DJINNI_NODEJS\n#include ${header}\n#else\nclass ${typename(d.name, d.body)};\n#endif", Some(spec.cppNamespace)))
         } else {
           List(ImportRef("<memory>"))
         }

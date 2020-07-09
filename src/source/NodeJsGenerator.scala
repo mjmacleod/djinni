@@ -156,7 +156,7 @@ class NodeJsGenerator(spec: Spec, helperFiles: NodeJsHelperFilesDescriptor) exte
 
     if ((i.ext.nodeJS && nodeMode) || (i.ext.cpp && !nodeMode)) {
 
-      var fileName = if (nodeMode) idNode.ty(ident.name) else idNode.ty(ident.name).concat("Cpp")
+      var fileName = if (nodeMode) idNode.ty(ident.name) else idNode.ty(ident.name)
       fileName = s"$fileName.${spec.cppHeaderExt}"
 
       createFile(spec.nodeOutFolder.get, fileName, { (w: writer.IndentWriter) =>
@@ -198,7 +198,7 @@ class NodeJsGenerator(spec: Spec, helperFiles: NodeJsHelperFilesDescriptor) exte
 
         var classInheritance = s"class $className: public Napi::ObjectWrap<$className>"
         if (nodeMode) {
-          classInheritance = s"class $className: public ${spec.cppNamespace}::$cppClassName, public Napi::ObjectWrap<$className>"
+          classInheritance = s"class $className: public Napi::ObjectWrap<$className>"
         }
         w.wl
         w.w(classInheritance).bracedSemi {
