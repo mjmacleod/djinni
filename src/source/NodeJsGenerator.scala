@@ -56,25 +56,28 @@ class NodeJsGenerator(spec: Spec, helperFiles: NodeJsHelperFilesDescriptor) exte
                 checkAndCastTypes(ident, i, m, w, returnIsVoid)
 
                 val quotedMethod = s""""$methodName""""
-                w.wl(s"Napi::Function calling_function = Value().Get($quotedMethod).As<Napi::Function>();")
-                w.wl(s"auto result_$methodName = calling_function.Call(args);")
-                w.wl(s"if(result_$methodName.IsEmpty())").braced {
-                    val error = s""""$baseClassName::$methodName call failed""""
-                    w.wl(s"Napi::Error::New(env, $error).ThrowAsJavaScriptException();")
-                    if (returnIsVoid)
-                    {
-                        w.wl("return;")
+                w.wl(s"Napi::Value calling_function_as_value = Value().Get($quotedMethod);")
+                w.wl(s"if(!calling_function_as_value.IsUndefined() && !calling_function_as_value.IsNull())").braced {
+                    w.wl(s"Napi::Function calling_function = calling_function_as_value.As<Napi::Function>();")
+                    w.wl(s"auto result_$methodName = calling_function.Call(args);")
+                    w.wl(s"if(result_$methodName.IsEmpty())").braced {
+                        val error = s""""$baseClassName::$methodName call failed""""
+                        w.wl(s"Napi::Error::New(env, $error).ThrowAsJavaScriptException();")
+                        if (returnIsVoid)
+                        {
+                            w.wl("return;")
+                        }
+                        else
+                        {
+                            w.wl("return Napi::Value();")
+                        }
                     }
-                    else
-                    {
-                        w.wl("return Napi::Value();")
-                    }
-                }
 
-                if (m.ret.isDefined && ret != "void") {
-                    w.wl(s"auto checkedResult_$methodName = result_$methodName.ToLocalChecked();")
-                    marshal.toCppArgument(m.ret.get.resolved, s"fResult_$methodName", s"checkedResult_$methodName", w, returnIsVoid)
-                    w.wl(s"return fResult_$methodName;")
+                    if (m.ret.isDefined && ret != "void") {
+                        w.wl(s"auto checkedResult_$methodName = result_$methodName.ToLocalChecked();")
+                        marshal.toCppArgument(m.ret.get.resolved, s"fResult_$methodName", s"checkedResult_$methodName", w, returnIsVoid)
+                        w.wl(s"return fResult_$methodName;")
+                    }
                 }
             }
             if (methodNameImpl != methodName)
