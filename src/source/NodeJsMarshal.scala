@@ -376,13 +376,13 @@ class NodeJsMarshal(spec: Spec) extends CppMarshal(spec) {
       if (!tm.args.isEmpty) {
 
         if (container == "Map" && tm.args.length > 1) {
-          wr.wl(s"auto $converted = Map::New((Nan::GetCurrentContext())->GetIsolate());")
+          wr.wl(s"auto $converted = Napi::Object::New(env);")
           //Loop and cast elements of $converting
           wr.wl(s"for(auto const& ${converted}_elem : $converting)").braced {
             //Cast
             fromCppArgument(tm.args(0), s"${converted}_first", s"${converted}_elem.first", wr)
             fromCppArgument(tm.args(1), s"${converted}_second", s"${converted}_elem.second", wr)
-            wr.wl(s"$converted.Set(Nan::GetCurrentContext(), ${converted}_first, ${converted}_second);")
+            wr.wl(s"$converted.Set(${converted}_first, ${converted}_second);")
           }
           wr.wl
 
