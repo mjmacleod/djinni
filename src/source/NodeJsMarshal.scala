@@ -366,7 +366,7 @@ class NodeJsMarshal(spec: Spec) extends CppMarshal(spec) {
           if (!binary) {
             fromCppArgument(tm.args(0), s"${converted}_elem", s"$converting[${converted}_id]", wr)
           } else {
-            wr.wl(s"auto ${converted}_elem = Napi::Number::New(env, $converting[${converted}_id]);")
+            wr.wl(s"auto ${converted}_elem = Napi::Value::From(env, $converting[${converted}_id]);")
           }
           wr.wl(s"$converted.Set((int)${converted}_id,${converted}_elem);")
         }
@@ -424,7 +424,7 @@ class NodeJsMarshal(spec: Spec) extends CppMarshal(spec) {
       case MMap => fromCppContainer("Map")
       case d: MDef =>
         d.body match {
-          case e: Enum => wr.wl(s"auto $converted = Napi::Number::New(env, (int)$converting);")
+          case e: Enum => wr.wl(s"auto $converted = Napi::Value::From(env, (int)$converting);")
           case r: Record =>
             // Field definitions.
             wr.wl(s"auto $converted = Napi::Object::New(env);")
