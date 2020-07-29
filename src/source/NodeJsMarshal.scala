@@ -398,8 +398,11 @@ class NodeJsMarshal(spec: Spec) extends CppMarshal(spec) {
     def simpleCheckedCast(nodeType: String, toCheck: Boolean = true): String = {
       s"auto $converted = Napi::$nodeType::New(env, $converting);"
     }
+    def primitiveCast(nodeType: String, toCheck: Boolean = true): String = {
+      s"auto $converted = Napi::Value::From(env, $converting);"
+    }
     def base(m: Meta): IndentWriter = m match {
-      case p: MPrimitive => wr.wl(simpleCheckedCast(p.nodeJSName, false))
+      case p: MPrimitive => wr.wl(primitiveCast(p.nodeJSName, false))
       case MString => wr.wl(simpleCheckedCast("String"))
       case MDate => {
         wr.wl(s"auto date_$converted = chrono::duration_cast<chrono::milliseconds>(${converting}.time_since_epoch()).count();")
