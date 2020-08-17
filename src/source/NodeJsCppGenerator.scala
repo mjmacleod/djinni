@@ -168,24 +168,50 @@ class NodeJsCppGenerator(spec: Spec, helperFiles: NodeJsHelperFilesDescriptor) e
             if (m.ret.isDefined && cppRet != "void") {
 
               w.wl
-              if(!m.static) {
-                w.wl(s"auto result = cpp_impl->$methodName($args);")
-              } else {
-                w.wl(s"auto result = ${idCpp.ty(ident.name)}::$methodName($args);")
-              }
-
-              w.wl
-              w.wl("//Wrap result in node object")
-              marshal.fromCppArgument(m.ret.get.resolved, s"arg_$countArgs", "result", w)
-              w.wl
-              w.wl(s"return arg_$countArgs;")
-            } else {
-              if (!m.static) {
-                  w.wl(s"cpp_impl->$methodName($args);")
-              }
-              else
+              w.wl("try").braced
               {
+                if(!m.static) {
+                  w.wl(s"auto result = cpp_impl->$methodName($args);")
+                } else {
+                  w.wl(s"auto result = ${idCpp.ty(ident.name)}::$methodName($args);")
+                }
+
+                w.wl
+                w.wl("//Wrap result in node object")
+                marshal.fromCppArgument(m.ret.get.resolved, s"arg_$countArgs", "result", w)
+                w.wl
+                w.wl(s"return arg_$countArgs;")
+              }
+              w.wl("catch (std::exception& e)").braced
+              {
+                w.wl("Napi::Error::New(env, e.what()).ThrowAsJavaScriptException();")
+                w.wl("return Napi::Value();")
+              }
+              w.wl("catch (...)").braced
+              {
+                w.wl("""Napi::Error::New(env, "core exception thrown").ThrowAsJavaScriptException();""")
+                w.wl("return Napi::Value();")
+              }
+            } else {
+              w.wl("try").braced
+              {
+                if (!m.static) {
+                  w.wl(s"cpp_impl->$methodName($args);")
+                }
+                else
+                {
                   w.wl(s"${idCpp.ty(ident.name)}::$methodName($args);")
+                }
+              }
+              w.wl("catch (std::exception& e)").braced
+              {
+                w.wl("Napi::Error::New(env, e.what()).ThrowAsJavaScriptException();")
+                w.wl("return;")
+              }
+              w.wl("catch (...)").braced
+              {
+                w.wl("""Napi::Error::New(env, "core exception thrown").ThrowAsJavaScriptException();""")
+                w.wl("return;")
               }
             }
           }
